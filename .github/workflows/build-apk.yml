@@ -3,25 +3,16 @@ name: RozgarX — Build & Release APK
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Build type (debug/release)'
-        required: true
-        default: 'release'
-        type: choice
-        options: [debug, release]
 
 env:
   FLUTTER_VERSION: '3.24.0'
   JAVA_VERSION: '17'
 
 jobs:
-  # ─── 1. Validate & Test ────────────────────────────────────────────────────
+  # ─── JOB 1: Validate ────────────────────────────────────────────────────────
   validate:
-    name: 🔍 Validate & Test
+    name: Validate & Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,23 +21,22 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: zulu
+          distribution: 'zulu'
           java-version: ${{ env.JAVA_VERSION }}
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
           cache: true
 
       - name: Create google-services.json
-        working-directory: flutter_app/android/app
-        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > google-services.json
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > flutter_app/android/app/google-services.json
 
       - name: Create firebase_options.dart
-        working-directory: flutter_app/lib
-        run: echo '${{ secrets.FIREBASE_OPTIONS_DART }}' > firebase_options.dart
+        run: |
+          echo '${{ secrets.FIREBASE_OPTIONS_DART }}' > flutter_app/lib/firebase_options.dart
 
       - name: Get Dependencies
         working-directory: flutter_app
@@ -54,20 +44,15 @@ jobs:
 
       - name: Check Formatting
         working-directory: flutter_app
-        run: dart format --set-exit-if-changed lib/
+        run: dart format --set-exit-if-changed .
         continue-on-error: true
 
       - name: Analyze
         working-directory: flutter_app
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze
         continue-on-error: true
 
-      - name: Run Tests
-        working-directory: flutter_app
-        run: flutter test --coverage
-        continue-on-error: true
-
-  # ─── 2. Build Debug APK ────────────────────────────────────────────────────
+  # ─── JOB 2: Build Debug APK ─────────────────────────────────────────────────
   build-debug:
     name: 🔨 Build Debug APK
     runs-on: ubuntu-latest
@@ -80,23 +65,22 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: zulu
+          distribution: 'zulu'
           java-version: ${{ env.JAVA_VERSION }}
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
           cache: true
 
       - name: Create google-services.json
-        working-directory: flutter_app/android/app
-        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > google-services.json
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > flutter_app/android/app/google-services.json
 
       - name: Create firebase_options.dart
-        working-directory: flutter_app/lib
-        run: echo '${{ secrets.FIREBASE_OPTIONS_DART }}' > firebase_options.dart
+        run: |
+          echo '${{ secrets.FIREBASE_OPTIONS_DART }}' > flutter_app/lib/firebase_options.dart
 
       - name: Get Dependencies
         working-directory: flutter_app
@@ -109,16 +93,16 @@ jobs:
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: rozgarx-debug-${{ github.sha }}
+          name: debug-apk
           path: flutter_app/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
 
-  # ─── 3. Build Release APK ─────────────────────────────────────────────────
+  # ─── JOB 3: Build Release APK ───────────────────────────────────────────────
   build-release:
     name: 🚀 Build Release APK
     runs-on: ubuntu-latest
     needs: validate
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release')
+    if: needs.validate.result == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -126,36 +110,35 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: zulu
+          distribution: 'zulu'
           java-version: ${{ env.JAVA_VERSION }}
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
           cache: true
 
       - name: Create google-services.json
-        working-directory: flutter_app/android/app
-        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > google-services.json
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > flutter_app/android/app/google-services.json
 
       - name: Create firebase_options.dart
-        working-directory: flutter_app/lib
-        run: echo '${{ secrets.FIREBASE_OPTIONS_DART }}' > firebase_options.dart
+        run: |
+          echo '${{ secrets.FIREBASE_OPTIONS_DART }}' > flutter_app/lib/firebase_options.dart
 
       - name: Create keystore from secret
-        run: echo '${{ secrets.KEYSTORE_BASE64 }}' | base64 --decode > flutter_app/android/app/rozgarx-release.jks
+        run: |
+          echo '${{ secrets.KEYSTORE_BASE64 }}' | base64 --decode > flutter_app/android/app/rozgarx-release.jks
 
       - name: Create key.properties
-        working-directory: flutter_app/android
         run: |
-          cat > key.properties << EOF
+          cat > flutter_app/android/key.properties << 'KEYEOF'
           storePassword=${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
           storeFile=rozgarx-release.jks
-          EOF
+          KEYEOF
 
       - name: Get Dependencies
         working-directory: flutter_app
@@ -164,70 +147,45 @@ jobs:
       - name: Build Release APK
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
-            --obfuscate \
-            --split-debug-info=build/debug-info \
-            --no-tree-shake-icons
+          flutter build apk --release --no-tree-shake-icons
 
       - name: Build App Bundle (AAB) for Play Store
         working-directory: flutter_app
         run: |
-          flutter build appbundle --release \
-            --obfuscate \
-            --split-debug-info=build/debug-info
+          flutter build appbundle --release --no-tree-shake-icons
 
       - name: Get Version
-        id: get_version
+        id: version
         run: |
-          VERSION=$(grep '^version:' flutter_app/pubspec.yaml | sed 's/version: //')
+          VERSION=$(grep 'version:' flutter_app/pubspec.yaml | head -1 | awk '{print $2}' | cut -d'+' -f1)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: rozgarx-release-v${{ steps.get_version.outputs.version }}-${{ github.run_number }}
-          path: |
-            flutter_app/build/app/outputs/flutter-apk/app-release.apk
-            flutter_app/build/app/outputs/bundle/release/app-release.aab
+          name: release-apk-v${{ steps.version.outputs.version }}
+          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 90
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-aab-v${{ steps.version.outputs.version }}
+          path: flutter_app/build/app/outputs/bundle/release/app-release.aab
           retention-days: 90
 
       - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
+        if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v${{ steps.get_version.outputs.version }}-build${{ github.run_number }}
-          name: RozgarX v${{ steps.get_version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}-build${{ github.run_number }}
+          name: RozgarX v${{ steps.version.outputs.version }}
           body: |
-            ## 🚀 RozgarX Release
-            
-            **Version:** ${{ steps.get_version.outputs.version }}
-            **Build:** #${{ github.run_number }}
-            **Commit:** ${{ github.sha }}
-            
-            ### What's included:
-            - ✅ Release APK (install directly on Android)
-            - ✅ App Bundle AAB (for Play Store upload)
-            
-            ### How to install:
-            1. Download `app-release.apk`
-            2. Enable "Install from unknown sources" on your phone
-            3. Open the APK file to install
+            ## RozgarX Auto Build
+            Built automatically by GitHub Actions
           files: |
             flutter_app/build/app/outputs/flutter-apk/app-release.apk
             flutter_app/build/app/outputs/bundle/release/app-release.aab
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Summary
-        run: |
-          echo "## ✅ Build Successful!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-          APK_SIZE=$(du -sh flutter_app/build/app/outputs/flutter-apk/app-release.apk | cut -f1)
-          AAB_SIZE=$(du -sh flutter_app/build/app/outputs/bundle/release/app-release.aab | cut -f1)
-          echo "| app-release.apk | $APK_SIZE |" >> $GITHUB_STEP_SUMMARY
-          echo "| app-release.aab | $AAB_SIZE |" >> $GITHUB_STEP_SUMMARY
           

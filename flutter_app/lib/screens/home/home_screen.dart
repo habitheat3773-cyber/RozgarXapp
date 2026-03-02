@@ -1,34 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
-import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/constants/app_constants.dart';
 import '../../models/job_model.dart';
-import '../../providers/jobs_provider.dart';
-import '../../providers/auth_provider.dart';
-import '../../widgets/job_card.dart';
-import '../../widgets/featured_banner.dart';
-import '../../widgets/category_filter.dart';
-import '../../widgets/stats_banner.dart';
-import '../../widgets/trending_section.dart';
-import '../../widgets/skeleton_job_card.dart';
-import '../../core/services/admob_service.dart';
 
-class HomeScreen extends ConsumerStatefulWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
-  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen>
-    with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _showFab = false;
   String _selectedCategory = 'All';
+  bool _isLoading = true;
+  List<JobModel> _jobs = [];
+  String? _error;
+
+  final List<String> _categories = [
+    'All', 'SSC', 'Railway', 'Banking', 'UPSC',
+    'Defence', 'Teaching', 'Police', 'Engineering', 'Medical',
+  ];
 
   @override
   void initState() {
@@ -37,6 +29,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final show = _scrollController.offset > 300;
       if (show != _showFab) setState(() => _showFab = show);
     });
+    _loadJobs();
   }
 
   @override
@@ -45,357 +38,280 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
+  Future<void> _loadJobs() async {
+    setState(() { _isLoading = true; _error = null; });
+    try {
+      Query query = FirebaseFirestore.instance
+          .collection('jobs')
+          .orderBy('created_at', descending: true)
+          .limit(50);
+      if (_selectedCategory != 'All') {
+        query = query.where('category', isEqualTo: _selectedCategory);
+      }
+      final snap = await query.get();
+      setState(() {
+        _jobs = snap.docs.map((d) => JobModel.fromFirestore(d)).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() { _error = e.toString(); _isLoading = false; });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = ref.watch(authProvider).value;
-    final jobsAsync = ref.watch(jobsStreamProvider(_selectedCategory));
-    final featuredAsync = ref.watch(featuredJobsProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
-      body: LiquidPullToRefresh(
-        onRefresh: () async {
-          ref.invalidate(jobsStreamProvider(_selectedCategory));
-          ref.invalidate(featuredJobsProvider);
-        },
-        color: AppTheme.primaryBlue,
-        backgroundColor: isDark ? AppTheme.darkCard : AppTheme.lightSurface,
-        height: 80,
-        animSpeedFactor: 2,
-        showChildOpacityTransition: false,
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: RefreshIndicator(
+        onRefresh: _loadJobs,
+        color: const Color(0xFF1E3A8A),
         child: CustomScrollView(
           controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            // ── App Bar ─────────────────────────────────────────────────
-            _buildSliverAppBar(context, user?.name ?? ''),
-
-            // ── Stats Banner ─────────────────────────────────────────────
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: StatsBanner(),
-              ),
-            ),
-
-            // ── Category Filter ───────────────────────────────────────────
-            SliverToBoxAdapter(
-              child: CategoryFilter(
-                selected: _selectedCategory,
-                onChanged: (cat) => setState(() => _selectedCategory = cat),
-              ),
-            ),
-
-            // ── Featured Jobs ─────────────────────────────────────────────
-            SliverToBoxAdapter(
-              child: featuredAsync.when(
-                data: (jobs) => jobs.isEmpty
-                    ? const SizedBox.shrink()
-                    : _buildFeaturedSection(jobs),
-                loading: () => _buildFeaturedSkeleton(),
-                error: (_, __) => const SizedBox.shrink(),
-              ),
-            ),
-
-            // ── Trending Section ──────────────────────────────────────────
-            const SliverToBoxAdapter(
-              child: TrendingSection(),
-            ),
-
-            // ── Jobs Header ───────────────────────────────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _selectedCategory == 'All' ? '📋 Latest Jobs' : '📋 $_selectedCategory Jobs',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    TextButton(
-                      onPressed: () => context.go('/search'),
-                      child: const Text('View All'),
-                    ),
-                  ],
+            _buildAppBar(),
+            _buildCategoryFilter(),
+            if (_isLoading)
+              const SliverFillRemaining(
+                child: Center(child: CircularProgressIndicator(color: Color(0xFF1E3A8A))),
+              )
+            else if (_error != null)
+              SliverFillRemaining(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.wifi_off, size: 64, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      const Text('Could not load jobs', style: TextStyle(fontSize: 16)),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadJobs,
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E3A8A)),
+                        child: const Text('Retry', style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (_jobs.isEmpty)
+              const SliverFillRemaining(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.work_off, size: 64, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('No jobs found', style: TextStyle(fontSize: 16, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.all(12),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) => _JobCard(job: _jobs[index]),
+                    childCount: _jobs.length,
+                  ),
                 ),
               ),
-            ),
-
-            // ── Jobs List ─────────────────────────────────────────────────
-            jobsAsync.when(
-              data: (jobs) => _buildJobsList(jobs),
-              loading: () => _buildJobsSkeleton(),
-              error: (err, _) => SliverToBoxAdapter(
-                child: _buildErrorWidget(err),
-              ),
-            ),
-
-            // ── Ad Banner ────────────────────────────────────────────────
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Center(child: BannerAdWidget()),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
         ),
       ),
-      floatingActionButton: AnimatedSlide(
-        duration: const Duration(milliseconds: 300),
-        offset: _showFab ? Offset.zero : const Offset(0, 2),
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 300),
-          opacity: _showFab ? 1 : 0,
-          child: FloatingActionButton(
-            onPressed: () => _scrollController.animateTo(
-              0,
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeInOutCubic,
-            ),
-            backgroundColor: AppTheme.primaryBlue,
-            child: const Icon(Icons.keyboard_arrow_up, color: Colors.white),
-          ),
-        ),
-      ),
+      floatingActionButton: _showFab
+          ? FloatingActionButton(
+              mini: true,
+              backgroundColor: const Color(0xFF1E3A8A),
+              onPressed: () => _scrollController.animateTo(0,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOut),
+              child: const Icon(Icons.arrow_upward, color: Colors.white),
+            )
+          : null,
     );
   }
 
-  Widget _buildSliverAppBar(BuildContext context, String name) {
+  SliverAppBar _buildAppBar() {
     return SliverAppBar(
       floating: true,
       snap: true,
-      pinned: false,
-      expandedHeight: 130,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      flexibleSpace: FlexibleSpaceBar(
-        collapseMode: CollapseMode.pin,
-        background: Container(
-          padding: const EdgeInsets.fromLTRB(20, 60, 20, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _getGreeting(),
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      Text(
-                        name.isNotEmpty ? name : 'Candidate 👋',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      )
-                          .animate()
-                          .fadeIn(duration: 500.ms)
-                          .slideX(begin: -0.1),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        onPressed: () => context.go('/notifications'),
-                        icon: Stack(
-                          children: [
-                            const Icon(Icons.notifications_outlined, size: 28),
-                            Positioned(
-                              right: 0,
-                              top: 0,
-                              child: Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: AppTheme.accentOrange,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      GestureDetector(
-                        onTap: () => context.go('/profile'),
-                        child: CircleAvatar(
-                          radius: 18,
-                          backgroundColor: AppTheme.primaryBlue,
-                          child: Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+      backgroundColor: const Color(0xFF1E3A8A),
+      title: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('RozgarX', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20)),
+          Text('Sarkari Naukri, Ek Click Mein', style: TextStyle(color: Colors.white70, fontSize: 11)),
+        ],
       ),
-    );
-  }
-
-  Widget _buildFeaturedSection(List<JobModel> jobs) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-          child: Row(
-            children: [
-              Container(
-                width: 4,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: AppTheme.accentOrange,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '🔥 Featured Jobs',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ],
-          ),
-        ).animate().fadeIn(delay: 200.ms),
-        SizedBox(
-          height: 170,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: jobs.length,
-            itemBuilder: (ctx, i) => FeaturedBanner(
-              job: jobs[i],
-              index: i,
-              onTap: () => context.go('/job/${jobs[i].id}', extra: jobs[i]),
-            ),
-          ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.search, color: Colors.white),
+          onPressed: () => context.go('/search'),
+        ),
+        IconButton(
+          icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+          onPressed: () {},
         ),
       ],
     );
   }
 
-  Widget _buildFeaturedSkeleton() {
-    return const SizedBox(
-      height: 220,
-      child: Center(child: CircularProgressIndicator()),
-    );
-  }
-
-  SliverList _buildJobsList(List<JobModel> jobs) {
-    if (jobs.isEmpty) {
-      return SliverList(
-        delegate: SliverChildListDelegate([
-          _buildEmptyState(),
-        ]),
-      );
-    }
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (ctx, i) {
-          // Insert native ad every 5 jobs
-          if (i > 0 && i % 6 == 0) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: BannerAdWidget(size: AdSize.mediumRectangle),
-            );
-          }
-          final jobIndex = i - (i ~/ 6);
-          if (jobIndex >= jobs.length) return null;
-          final job = jobs[jobIndex];
-          return AnimationConfiguration.staggeredList(
-            position: i,
-            duration: const Duration(milliseconds: 400),
-            child: SlideAnimation(
-              verticalOffset: 50,
-              child: FadeInAnimation(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: JobCard(
-                    job: job,
-                    onTap: () => context.go('/job/${job.id}', extra: job),
+  SliverToBoxAdapter _buildCategoryFilter() {
+    return SliverToBoxAdapter(
+      child: Container(
+        color: Colors.white,
+        height: 50,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          itemCount: _categories.length,
+          itemBuilder: (context, i) {
+            final cat = _categories[i];
+            final selected = cat == _selectedCategory;
+            return GestureDetector(
+              onTap: () {
+                setState(() => _selectedCategory = cat);
+                _loadJobs();
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                decoration: BoxDecoration(
+                  color: selected ? const Color(0xFF1E3A8A) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  cat,
+                  style: TextStyle(
+                    color: selected ? Colors.white : const Color(0xFF64748B),
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
               ),
-            ),
-          );
-        },
-        childCount: jobs.length + (jobs.length ~/ 6),
-      ),
-    );
-  }
-
-  SliverList _buildJobsSkeleton() {
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (ctx, i) => const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: SkeletonJobCard(),
+            );
+          },
         ),
-        childCount: 6,
       ),
     );
   }
+}
 
-  Widget _buildEmptyState() {
-    return Padding(
-      padding: const EdgeInsets.all(48),
-      child: Column(
-        children: [
-          Icon(Icons.work_off_outlined, size: 72, color: Colors.grey[400])
-              .animate().scale(duration: 600.ms, curve: Curves.elasticOut),
-          const SizedBox(height: 16),
-          Text(
-            'No jobs found',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Colors.grey[500],
+class _JobCard extends StatelessWidget {
+  final JobModel job;
+  const _JobCard({required this.job});
+
+  @override
+  Widget build(BuildContext context) {
+    final daysLeft = job.daysLeft;
+    final isUrgent = daysLeft != null && daysLeft <= 7 && daysLeft >= 0;
+    final isExpired = job.isExpired;
+
+    return GestureDetector(
+      onTap: () => context.go('/job/${job.id}'),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isUrgent
+                ? Colors.orange.withOpacity(0.5)
+                : const Color(0xFFE2E8F0),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Try changing the category filter',
-            style: Theme.of(context).textTheme.bodySmall,
-            textAlign: TextAlign.center,
-          ),
-        ],
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    job.title,
+                    style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A)),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (isUrgent)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.orange,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      daysLeft == 0 ? 'Today!' : '${daysLeft}d left',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                if (isExpired && !isUrgent)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text('Expired',
+                        style: TextStyle(color: Colors.white, fontSize: 11)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              job.department,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                if (job.category != null) _chip(job.category!, const Color(0xFF1E3A8A)),
+                const SizedBox(width: 6),
+                if (job.totalPosts != null) _chip('${job.totalPosts} Posts', const Color(0xFF059669)),
+                const Spacer(),
+                if (job.lastDate != null)
+                  Text(
+                    'Last: ${job.lastDate}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isUrgent ? Colors.orange : const Color(0xFF94A3B8),
+                      fontWeight: isUrgent ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildErrorWidget(Object err) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          const Icon(Icons.wifi_off, size: 56, color: AppTheme.errorRed),
-          const SizedBox(height: 12),
-          const Text('Failed to load jobs'),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: () => ref.invalidate(jobsStreamProvider(_selectedCategory)),
-            child: const Text('Retry'),
-          ),
-        ],
+  Widget _chip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
       ),
+      child: Text(text,
+          style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
     );
-  }
-
-  String _getGreeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning,';
-    if (hour < 17) return 'Good afternoon,';
-    return 'Good evening,';
   }
 }

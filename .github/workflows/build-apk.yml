@@ -15,7 +15,7 @@ on:
         options: [debug, release]
 
 env:
-  FLUTTER_VERSION: '3.19.6'
+  FLUTTER_VERSION: '3.24.0'
   JAVA_VERSION: '17'
 
 jobs:
@@ -230,3 +230,4 @@ jobs:
           AAB_SIZE=$(du -sh flutter_app/build/app/outputs/bundle/release/app-release.aab | cut -f1)
           echo "| app-release.apk | $APK_SIZE |" >> $GITHUB_STEP_SUMMARY
           echo "| app-release.aab | $AAB_SIZE |" >> $GITHUB_STEP_SUMMARY
+          

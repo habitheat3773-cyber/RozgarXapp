@@ -35,6 +35,11 @@ class _JobDetailScreenState extends State<JobDetailScreen>
     super.dispose();
   }
 
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'To be announced';
+    return '${date.day.toString().padLeft(2, '0')}-${date.month.toString().padLeft(2, '0')}-${date.year}';
+  }
+
   Future<void> _loadJob() async {
     try {
       final doc = await FirebaseFirestore.instance
@@ -46,7 +51,6 @@ class _JobDetailScreenState extends State<JobDetailScreen>
           _job = JobModel.fromFirestore(doc);
           _isLoading = false;
         });
-        // Track view
         FirebaseFirestore.instance
             .collection('jobs')
             .doc(widget.jobId)
@@ -60,10 +64,12 @@ class _JobDetailScreenState extends State<JobDetailScreen>
   Future<void> _loadSavedJobs() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList('saved_jobs') ?? [];
-    setState(() {
-      _savedJobs = saved.toSet();
-      _isSaved = _savedJobs.contains(widget.jobId);
-    });
+    if (mounted) {
+      setState(() {
+        _savedJobs = saved.toSet();
+        _isSaved = _savedJobs.contains(widget.jobId);
+      });
+    }
   }
 
   Future<void> _toggleSave() async {
@@ -95,7 +101,7 @@ class _JobDetailScreenState extends State<JobDetailScreen>
   void _shareJob() {
     if (_job == null) return;
     Share.share(
-      '${_job!.title}\n${_job!.department}\nLast Date: ${_job!.lastDate}\n\nDownload RozgarX for more govt jobs!',
+      '${_job!.title}\n${_job!.department}\nLast Date: ${_formatDate(_job!.lastDate)}\n\nDownload RozgarX for more govt jobs!',
     );
   }
 
@@ -113,7 +119,7 @@ class _JobDetailScreenState extends State<JobDetailScreen>
 
     final job = _job!;
     final daysLeft = job.daysLeft;
-    final isUrgent = daysLeft != null && daysLeft <= 7 && daysLeft >= 0;
+    final isUrgent = daysLeft <= 7 && daysLeft >= 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -150,38 +156,24 @@ class _JobDetailScreenState extends State<JobDetailScreen>
                   children: [
                     if (isUrgent)
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         margin: const EdgeInsets.only(bottom: 8),
                         decoration: BoxDecoration(
                           color: Colors.red,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          daysLeft == 0
-                              ? 'Last Day!'
-                              : '$daysLeft days left',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold),
+                          daysLeft == 0 ? 'Last Day!' : '$daysLeft days left',
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       ),
-                    Text(
-                      job.title,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    Text(job.title,
+                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 4),
-                    Text(
-                      job.department,
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.85), fontSize: 14),
-                    ),
+                    Text(job.department,
+                        style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 14)),
                   ],
                 ),
               ),
@@ -217,23 +209,17 @@ class _JobDetailScreenState extends State<JobDetailScreen>
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8)
-          ],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8)],
         ),
         child: ElevatedButton(
           onPressed: _applyNow,
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF1E3A8A),
             padding: const EdgeInsets.symmetric(vertical: 14),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           child: const Text('Apply Now',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold)),
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         ),
       ),
     );
@@ -243,23 +229,16 @@ class _JobDetailScreenState extends State<JobDetailScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _infoCard('Total Posts', job.totalPosts?.toString() ?? 'N/A',
-            Icons.people, Colors.blue),
-        _infoCard('Category', job.category ?? 'General', Icons.category,
-            Colors.purple),
-        _infoCard('State', job.state ?? 'All India', Icons.location_on,
-            Colors.green),
-        _infoCard('Application Fee', job.applicationFee ?? 'Check Official',
-            Icons.payment, Colors.orange),
-        _infoCard('Salary', job.salaryRange ?? 'As per norms', Icons.currency_rupee,
-            Colors.teal),
+        _infoCard('Total Posts', job.totalPosts?.toString() ?? 'N/A', Icons.people, Colors.blue),
+        _infoCard('Category', job.category ?? 'General', Icons.category, Colors.purple),
+        _infoCard('State', job.state ?? 'All India', Icons.location_on, Colors.green),
+        _infoCard('Application Fee', job.applicationFee ?? 'Check Official', Icons.payment, Colors.orange),
+        _infoCard('Salary', job.salaryRange ?? 'As per norms', Icons.currency_rupee, Colors.teal),
         if (job.description != null) ...[
           const SizedBox(height: 16),
-          const Text('Description',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text('Description', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text(job.description!,
-              style: const TextStyle(fontSize: 14, color: Color(0xFF475569))),
+          Text(job.description!, style: const TextStyle(fontSize: 14, color: Color(0xFF475569))),
         ],
       ],
     );
@@ -270,7 +249,6 @@ class _JobDetailScreenState extends State<JobDetailScreen>
       padding: const EdgeInsets.all(16),
       children: [
         _timelineItem('Notification Date', job.notificationDate, Colors.blue),
-        _timelineItem('Apply Start', job.notificationDate, Colors.green),
         _timelineItem('Last Date to Apply', job.lastDate, Colors.red),
         _timelineItem('Admit Card', job.admitCardDate, Colors.orange),
         _timelineItem('Exam Date', job.examDate, Colors.purple),
@@ -283,13 +261,10 @@ class _JobDetailScreenState extends State<JobDetailScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _infoCard('Qualification', job.qualification ?? 'See notification',
-            Icons.school, Colors.blue),
-        _infoCard('Age Limit', job.ageLimit ?? 'See notification',
-            Icons.cake, Colors.orange),
+        _infoCard('Qualification', job.qualification ?? 'See notification', Icons.school, Colors.blue),
+        _infoCard('Age Limit', job.ageLimit ?? 'See notification', Icons.cake, Colors.orange),
         const SizedBox(height: 16),
-        const Text('How to Apply',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const Text('How to Apply', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text(
           '1. Read the official notification carefully\n'
@@ -310,28 +285,24 @@ class _JobDetailScreenState extends State<JobDetailScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('Study Topics',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const Text('Study Topics', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
-        ...tips
-            .map((tip) => Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle,
-                          color: Color(0xFF22C55E), size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(child: Text(tip)),
-                    ],
-                  ),
-                ))
-            .toList(),
+        ...tips.map((tip) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Color(0xFF22C55E), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(tip)),
+                ],
+              ),
+            )),
       ],
     );
   }
@@ -360,13 +331,9 @@ class _JobDetailScreenState extends State<JobDetailScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF64748B))),
+                Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                 const SizedBox(height: 2),
-                Text(value,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600)),
+                Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               ],
             ),
           ),
@@ -375,7 +342,8 @@ class _JobDetailScreenState extends State<JobDetailScreen>
     );
   }
 
-  Widget _timelineItem(String label, String? date, Color color) {
+  Widget _timelineItem(String label, DateTime? date, Color color) {
+    final dateStr = _formatDate(date);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -393,16 +361,12 @@ class _JobDetailScreenState extends State<JobDetailScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF64748B))),
-                Text(
-                  date ?? 'To be announced',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: date != null ? const Color(0xFF0F172A) : Colors.grey),
-                ),
+                Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                Text(dateStr,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: date != null ? const Color(0xFF0F172A) : Colors.grey)),
               ],
             ),
           ),
@@ -413,46 +377,11 @@ class _JobDetailScreenState extends State<JobDetailScreen>
 
   List<String> _getTips(String? category) {
     switch (category?.toLowerCase()) {
-      case 'ssc':
-        return [
-          'General Awareness & Current Affairs',
-          'Quantitative Aptitude',
-          'English Language',
-          'General Intelligence & Reasoning',
-        ];
-      case 'railway':
-        return [
-          'Mathematics',
-          'General Intelligence',
-          'General Awareness',
-          'General Science',
-        ];
-      case 'banking':
-        return [
-          'Quantitative Aptitude',
-          'Reasoning Ability',
-          'English Language',
-          'General/Financial Awareness',
-          'Computer Knowledge',
-        ];
-      case 'upsc':
-        return [
-          'History & Culture',
-          'Geography',
-          'Indian Polity & Governance',
-          'Economy',
-          'Science & Technology',
-          'Current Affairs',
-          'Essay Writing',
-        ];
-      default:
-        return [
-          'General Knowledge & Current Affairs',
-          'Quantitative Aptitude',
-          'Reasoning & Logical Thinking',
-          'English Language',
-          'General Science',
-        ];
+      case 'ssc': return ['General Awareness & Current Affairs', 'Quantitative Aptitude', 'English Language', 'General Intelligence & Reasoning'];
+      case 'railway': return ['Mathematics', 'General Intelligence', 'General Awareness', 'General Science'];
+      case 'banking': return ['Quantitative Aptitude', 'Reasoning Ability', 'English Language', 'General/Financial Awareness', 'Computer Knowledge'];
+      case 'upsc': return ['History & Culture', 'Geography', 'Indian Polity & Governance', 'Economy', 'Science & Technology', 'Current Affairs'];
+      default: return ['General Knowledge & Current Affairs', 'Quantitative Aptitude', 'Reasoning & Logical Thinking', 'English Language', 'General Science'];
     }
   }
 }

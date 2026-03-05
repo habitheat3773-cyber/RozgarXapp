@@ -1,0 +1,74 @@
+name: RozgarX Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          cache: true
+
+      - name: Setup secrets and assets
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > flutter_app/android/app/google-services.json
+          echo '${{ secrets.FIREBASE_OPTIONS_DART }}' > flutter_app/lib/firebase_options.dart
+          echo '${{ secrets.KEYSTORE_BASE64 }}' | base64 --decode > flutter_app/android/app/keystore.jks
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=keystore.jks\n' \
+            '${{ secrets.KEY_STORE_PASSWORD }}' \
+            '${{ secrets.KEY_PASSWORD }}' \
+            '${{ secrets.KEY_ALIAS }}' \
+            > flutter_app/android/key.properties
+          mkdir -p flutter_app/assets/{images,icons,fonts,animations}
+
+      - name: Get packages
+        working-directory: flutter_app
+        run: flutter pub get
+
+      - name: Build Release APK
+        working-directory: flutter_app
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Build Debug APK
+        working-directory: flutter_app
+        run: flutter build apk --debug --no-tree-shake-icons
+
+      - name: Get version
+        id: ver
+        run: |
+          echo "v=$(grep '^version:' flutter_app/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RozgarX-Release-v${{ steps.ver.outputs.v }}
+          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RozgarX-Debug-v${{ steps.ver.outputs.v }}
+          path: flutter_app/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 30
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.ver.outputs.v }}-b${{ github.run_number }}
+          name: RozgarX v${{ steps.ver.outputs.v }}
+          body: |
+            ### RozgarX - Sarkari Naukri, Ek Click Mein
+            Auto-built by GitHub Actions
+          files: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

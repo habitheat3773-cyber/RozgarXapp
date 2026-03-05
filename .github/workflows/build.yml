@@ -33,6 +33,16 @@ jobs:
             > flutter_app/android/key.properties
           mkdir -p flutter_app/assets/{images,icons,fonts,animations}
 
+      - name: Remove v1 embedding references
+        run: |
+          find flutter_app/android -type f | xargs grep -rl "io\.flutter\.app" 2>/dev/null | while read f; do
+            sed -i '/io\.flutter\.app/d' "$f"
+          done
+          find flutter_app/android -type f | xargs grep -rl "SplashScreenDrawable\|FlutterApplication\|registerWith\|PluginRegistry" 2>/dev/null | while read f; do
+            sed -i '/SplashScreenDrawable\|FlutterApplication\|registerWith\|PluginRegistry/d' "$f"
+          done
+          echo "V1 embedding references cleaned from all android files"
+
       - name: Get packages
         working-directory: flutter_app
         run: flutter pub get
@@ -66,9 +76,8 @@ jobs:
         with:
           tag_name: v${{ steps.ver.outputs.v }}-b${{ github.run_number }}
           name: RozgarX v${{ steps.ver.outputs.v }}
-          body: |
-            ### RozgarX - Sarkari Naukri, Ek Click Mein
-            Auto-built by GitHub Actions
+          body: Auto-built by GitHub Actions
           files: flutter_app/build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
